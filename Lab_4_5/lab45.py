@@ -1,268 +1,158 @@
 import asyncio
 import random
-from datetime import datetime, timedelta, timezone, tzinfo
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from datetime import datetime, timedelta
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    ContextTypes, filters, ConversationHandler
+)
 
 TOKEN = ""
 
-GOIDA_PHOTO_URL = "https://m.gjcdn.net/game-header/950/929009-zrkzhsjt-v4.jpg" 
+GOIDA_PHOTO_URL = "https://m.gjcdn.net/game-header/950/929009-zrkzhsjt-v4.jpg"
 
-class FixedTimezone(tzinfo):
-    def utcoffset(self, dt):
-        return timedelta(hours=3)
-    def dst(self, dt):
-        return timedelta(0)
-    def tzname(self, dt):
-        return "UTC+3"
+class FixedTimezone(timedelta):
+    def __new__(cls):
+        return super().__new__(cls, hours=3)
 
-MOSCOW_TZ = FixedTimezone()
+MOSCOW_TZ = datetime.now().tzinfo  
+def now_moscow():
+    return datetime.utcnow() + FixedTimezone()
 
 EXAMS = [
-    ("ИУ6", datetime(2025, 12, 20, 9, 0, tzinfo=MOSCOW_TZ)),
-    ("ИУ6", datetime(2025, 12, 24, 9, 0, tzinfo=MOSCOW_TZ)),
-    ("ИУ5", datetime(2025, 12, 24, 14, 0, tzinfo=MOSCOW_TZ)),
-    ("ИУ5", datetime(2025, 7, 3, 14, 0, tzinfo=MOSCOW_TZ))
+    ("ИУ6", datetime(2025, 12, 20, 9, 0)),
+    ("ИУ6", datetime(2025, 12, 24, 9, 0)),
+    ("ИУ5", datetime(2025, 12, 24, 14, 0)),
+    ("ИУ5", datetime(2025, 12, 3, 14, 0))
 ]
 
-banned_users = {}
-
-GERMAN_JOKES = [
-    "Warum nehmen Geister nie den Bus? Weil sie einen Fahrplan haben, der nie eingeholt wird!",
-    "Was ist der Unterschied zwischen einer Kamera und einer Kartoffel? Keiner, beide haben Augen!",
-    "Warum konnte der Computer nicht schlafen? Weil er einen Virus hatte, der ihn wach hielt!",
-    "Wie nennt man einen Frosch, der eine Disco aufmacht? MC Hammer!",
-    "Was macht ein Clown im Büro? Faxen!",
-    "Warum sind Mathematiker schlechte Gärtner? Weil sie immer Wurzeln ziehen!",
-    "Was ist grün und steht im Wald? Ein ungepflücktes Känguru!",
-    "Warum tragen Astronauten immer Helm? Weil sie sich vor den Sternschnuppen schützen müssen!",
-    "Was ist das Lieblingsessen eines Gespenstes? Spukhetti!",
-    "Warum ging der Kühlschrank zum Psychiater? Weil er komplexe hatte!"
+JOKES = [
+    "Доктор после осмотра пациента: - Кости целы, только порядок другой",
+    "Какой язык программирования самый дружелюбный? Python — он змея, но не кусается!",
+    "Знаешь, что самое смешное при увольнении? Находишь свою вакансию в интернете и удивляешься тому, какие у тебя были обязанности"
 ]
 
-JAPANESE_JOKES = [
-    "なぜ、本は怖がらないの？ページがあるから！",
-    "トマトは赤い、でも、走るのは遅い。なぜ？ケチャップだから！",
-    "サッカーの試合中に卵が割れた。誰がやった？卵！",
-    "なぜ、自転車が立っていられないの？二本足だから！",
-    "海の中で一番強いのは？海老！",
-    "猫は何と言う？ニャー！",
-    "なぜ、鳥は学校に行かないの？空を飛べるから！",
-    "電車の中で一番冷たいところは？冷房車！",
-    "犬は何と言う？ワン！",
-    "なぜ、魚はお金持ち？海に銀行があるから！"
+SONGS = [
+    "🎵 Rammstein – Du Hast: https://www.youtube.com/watch?v=W3q8Od5qJio",
+    "🎵 Rammstein – Sonne: https://www.youtube.com/watch?v=StZcUAPRRac",
+    "🎵 Rammstein – Deutschland: https://www.youtube.com/watch?v=NeQM1c-XCDc"
 ]
 
-RAMMSTEIN_SONGS = [
-    "Du Hast - https://www.youtube.com/watch?v=W3q8Od5qJio",
-    "Sonne - https://www.youtube.com/watch?v=StZcUAPRRac",
-    "Ich Will - https://www.youtube.com/watch?v=qHm9MG9xw1o",
-    "Mein Herz brennt - https://www.youtube.com/watch?v=IxuEtL7gxoM",
-    "Deutschland - https://www.youtube.com/watch?v=NeQM1c-XCDc"
-]
+MAIN_MENU, WAITING_JOKE_CONFIRM, WAITING_SONG_CONFIRM = range(3)
 
-async def timeleft(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    now = datetime.now(MOSCOW_TZ)
-    response = []
+MAIN_KEYBOARD = [["📅 Время до экзаменов"], ["🎭 Шутка"], ["🎧 Песня"], ["🔥 ГОЙДА!"]]
 
-    groups = set(group for group, _ in EXAMS)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    await update.message.reply_text(
+        "Привет! Я помогу отслеживать экзамены и немного подниму настроение 😊\n\nВыбери действие:",
+        reply_markup=reply_markup
+    )
+    return MAIN_MENU
+
+async def timeleft_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    now = now_moscow()
+    response_lines = []
+
+    groups = {}
+    for group, exam_dt in EXAMS:
+        if group not in groups:
+            groups[group] = []
+        groups[group].append(exam_dt)
 
     for group in sorted(groups):
-        group_exams = [exam_date for g, exam_date in EXAMS if g == group]
-        group_response = [f"<b>{group}:</b>"]
-
-        for exam_date in group_exams:
-            total_seconds = (exam_date - now).total_seconds()
-
-            if total_seconds <= 0:
-                exam_info = "✅ Экзамен уже прошел"
+        lines = [f"<b>{group}:</b>"]
+        for exam_dt in sorted(groups[group]):
+            exam_dt_local = exam_dt + FixedTimezone()
+            delta = exam_dt_local - now
+            if delta.total_seconds() <= 0:
+                info = "✅ Экзамен уже прошёл"
             else:
-                days = int(total_seconds // 86400)
-                remaining_seconds = total_seconds % 86400
-                hours = int(remaining_seconds // 3600)
-                minutes = int((remaining_seconds % 3600) // 60)
-                exam_info = f"⏳ Осталось: {days} дн. {hours} час. {minutes} мин."
+                days = delta.days
+                hours, remainder = divmod(delta.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                info = f"⏳ Осталось: {days} дн. {hours} ч. {minutes} мин."
+            lines.append(f"{exam_dt.strftime('%d.%m.%Y %H:%M')} — {info}")
+        response_lines.append("\n".join(lines))
 
-            group_response.append(f"{exam_date.strftime('%d.%m.%Y %H:%M')} - {exam_info}")
+    await update.message.reply_text("\n\n".join(response_lines), parse_mode="HTML")
+    return MAIN_MENU
 
-        response.append("\n".join(group_response))
-
-    await update.message.reply_text("\n\n".join(response), parse_mode="HTML")
-
-async def random_grade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    grades = [1, 2, 3, 4, 5]
-    weights = [1, 20, 30, 20, 9]
-    grade = random.choices(grades, weights=weights, k=1)[0]
-    await update.message.reply_text(f"Твоя оценка на экзамене - {grade}")
-
-async def kreuz_joke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    joke = random.choice(GERMAN_JOKES)
-    await update.message.reply_text(f"🇩🇪 Немецкая шутка:\n\n{joke}")
-
-async def boku_joke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    joke = random.choice(JAPANESE_JOKES)
-    await update.message.reply_text(f"🇯🇵 Японская шутка:\n\n{joke}")
-
-async def rammstein_song(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    song = random.choice(RAMMSTEIN_SONGS)
-    await update.message.reply_text(f"🎵 Слушай Rammstein:\n\n{song}")
-
-async def razrab(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        photos = await context.bot.get_user_profile_photos(context.bot.id, limit=1)
-        if photos.total_count > 0:
-            photo = photos.photos[0][0]
-            await update.message.reply_photo(photo.file_id, caption="👨‍💻 Разработчик в здании!")
-        else:
-            await update.message.reply_text("⚠️ У бота нет фото профиля!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
-
-async def goida(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    for _ in range(5):
+async def goida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for _ in range(3):
         try:
-            await update.message.reply_photo(
-                GOIDA_PHOTO_URL,
-                caption="ГОЙДА! 🗡️",
-                disable_notification=True
-            )
-            await asyncio.sleep(1)
+            await update.message.reply_photo(GOIDA_PHOTO_URL, caption="ГОЙДА! 🗡️")
+            await asyncio.sleep(0.8)
         except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка отправки фото: {str(e)}")
+            await update.message.reply_text(f"Ошибка при отправке фото: {e}")
             break
+    return MAIN_MENU
 
-async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.message.chat_id
+# === Конечный автомат: Шутка ===
+async def joke_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Точно хочешь шутку? Она может быть очень глупой! Напиши «Да» или «Нет».")
+    return WAITING_JOKE_CONFIRM
 
-    if not update.message.reply_to_message and not context.args:
-        await update.message.reply_text("ℹ️ Ответьте на сообщение пользователя или укажите @username")
-        return
+async def joke_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+    if text in ["да", "yes", "ага", "конечно"]:
+        joke = random.choice(JOKES)
+        await update.message.reply_text(f"🎭 {joke}")
+    else:
+        await update.message.reply_text("Ладно, сохраним шутку на потом 😉")
+    return MAIN_MENU
 
-    target_user = None
+# === Конечный автомат: Песня ===
+async def song_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Хочешь послушать Rammstein? Ответь «Да» или «Нет».")
+    return WAITING_SONG_CONFIRM
 
-    if update.message.reply_to_message:
-        target_user = update.message.reply_to_message.from_user
+async def song_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+    if text in ["да", "yes", "давай", "конечно"]:
+        song = random.choice(SONGS)
+        await update.message.reply_text(song)
+    else:
+        await update.message.reply_text("Тишина — тоже музыка 🎼")
+    return MAIN_MENU
 
-    elif context.args and context.args[0].startswith('@'):
-        username = context.args[0][1:]
-        try:
-            user = await context.bot.get_chat_member(chat_id, username)
-            target_user = user.user
-        except Exception:
-            pass
+async def unknown_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Пожалуйста, используй кнопки или команды из меню.")
+    return MAIN_MENU
 
-    if not target_user:
-        await update.message.reply_text("❌ Пользователь не найден")
-        return
+def main():
+    app = Application.builder().token(TOKEN).build()
 
-    if chat_id not in banned_users:
-        banned_users[chat_id] = set()
-
-    banned_users[chat_id].add(target_user.id)
-    await update.message.reply_text(
-        f"🔨 Пользователь @{target_user.username} добавлен в шуточный бан!\n"
-        "Теперь на каждое его сообщение я буду отвечать 'Брысь отсюда, нехороший человек'"
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex("^📅 Время до экзаменов$"), timeleft_handler),
+            MessageHandler(filters.Regex("^🔥 ГОЙДА!$"), goida),
+            MessageHandler(filters.Regex("^🎭 Шутка$"), joke_start),
+            MessageHandler(filters.Regex("^🎧 Песня$"), song_start),
+        ],
+        states={
+            MAIN_MENU: [
+                MessageHandler(filters.Regex("^📅 Время до экзаменов$"), timeleft_handler),
+                MessageHandler(filters.Regex("^🔥 ГОЙДА!$"), goida),
+                MessageHandler(filters.Regex("^🎭 Шутка$"), joke_start),
+                MessageHandler(filters.Regex("^🎧 Песня$"), song_start),
+            ],
+            WAITING_JOKE_CONFIRM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, joke_confirm)
+            ],
+            WAITING_SONG_CONFIRM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, song_confirm)
+            ],
+        },
+        fallbacks=[
+            MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_input)
+        ],
+        allow_reentry=True
     )
 
-async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.message.chat_id
-
-    if chat_id not in banned_users or not banned_users[chat_id]:
-        await update.message.reply_text("ℹ️ В этом чате нет забаненных пользователей")
-        return
-
-    target_user = None
-
-    if update.message.reply_to_message:
-        target_user = update.message.reply_to_message.from_user
-
-    elif context.args and context.args[0].startswith('@'):
-        username = context.args[0][1:]
-        try:
-            user = await context.bot.get_chat_member(chat_id, username)
-            target_user = user.user
-        except Exception:
-            pass
-
-    if target_user:
-        if target_user.id in banned_users[chat_id]:
-            banned_users[chat_id].remove(target_user.id)
-            await update.message.reply_text(
-                f"✅ Пользователь @{target_user.username} разбанен!"
-            )
-        else:
-            await update.message.reply_text(
-                f"ℹ️ Пользователь @{target_user.username} не был забанен"
-            )
-    else:
-        count = len(banned_users[chat_id])
-        banned_users[chat_id].clear()
-        await update.message.reply_text(
-            f"✅ Все пользователи ({count}) разбанены!"
-        )
-
-async def handle_banned_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
-
-    if chat_id in banned_users and user_id in banned_users[chat_id]:
-        await update.message.reply_text(
-            "Брысь отсюда, нехороший человек",
-            reply_to_message_id=update.message.message_id
-        )
-
-async def send_cactus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        with open("video5377644305538117649.mp4", "rb") as video_file:
-            await update.message.reply_video(
-                video=video_file,
-                caption="Вот тебе кактусы! 🌵🌵🌵"
-            )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Не удалось отправить видео: {str(e)}")
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    commands = [
-        "<b>Доступные команды:</b>",
-        "",
-        "/timeleft - Время до экзаменов",
-        "/random - Случайная оценка",
-        "/Kreuzschlitzschraubendreher - Немецкая шутка",
-        "/BokuNoHero - Японская шутка",
-        "/rammstein - Случайная песня Rammstein",
-        "/razrab - Фото разработчика",
-        "/goida - 5 раз ГОЙДА",
-        "/ban @username - Шуточный бан пользователя",
-        "/unban @username - Снять шуточный бан",
-        "/cactus - Отправить 3 кактуса",
-        "",
-        "<i>Для команд ban/unban можно отвечать на сообщение пользователя</i>"
-    ]
-
-    await update.message.reply_text("\n".join(commands), parse_mode="HTML")
-
-def main() -> None:
-    application = Application.builder().token(TOKEN).build()
-
-    application.add_handler(CommandHandler("timeleft", timeleft))
-    application.add_handler(CommandHandler("random", random_grade))
-    application.add_handler(CommandHandler("Kreuzschlitzschraubendreher", kreuz_joke))
-    application.add_handler(CommandHandler("BokuNoHero", boku_joke))
-    application.add_handler(CommandHandler("rammstein", rammstein_song))
-
-    application.add_handler(CommandHandler("razrab_down", razrab))
-    application.add_handler(CommandHandler("goida", goida))
-    application.add_handler(CommandHandler("ban", ban_user))
-    application.add_handler(CommandHandler("unban", unban_user))
-    application.add_handler(CommandHandler("cactus", send_cactus))
-    application.add_handler(CommandHandler("start", start))
-
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_banned_user
-    ))
-
-    application.run_polling()
+    app.add_handler(conv_handler)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
