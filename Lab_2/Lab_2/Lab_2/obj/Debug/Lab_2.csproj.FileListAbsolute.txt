@@ -1,0 +1,7 @@
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\bin\Debug\Lab_2.exe.config
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\bin\Debug\Lab_2.exe
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\bin\Debug\Lab_2.pdb
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\obj\Debug\Lab_2.csproj.AssemblyReference.cache
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\obj\Debug\Lab_2.csproj.CoreCompileInputs.cache
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\obj\Debug\Lab_2.exe
+C:\Users\vreme\Documents\GitHub\IU5_3sem_PiKYAP\Lab_2\Lab_2\Lab_2\obj\Debug\Lab_2.pdb

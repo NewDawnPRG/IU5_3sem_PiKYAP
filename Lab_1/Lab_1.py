@@ -2,14 +2,21 @@ import sys
 import math
 
 def get_coef(index, prompt, allow_zero):
-    while True:
-        try:
+    try:
+        if index < len(sys.argv):
             coef_str = sys.argv[index]
             print(prompt)
             print(f"Попытка использовать значение из командной строки: {coef_str}")
-        except:
-            print(prompt)
-            coef_str = input()
+            coef = float(coef_str)
+            if not allow_zero and coef == 0.0:
+                raise ValueError("Zero coefficient not allowed")
+            return coef
+    except (ValueError, IndexError):
+        pass 
+
+    while True:
+        print(prompt)
+        coef_str = input().strip()
         try:
             coef = float(coef_str)
             if not allow_zero and coef == 0.0:
@@ -62,7 +69,7 @@ def main():
     b = get_coef(2, 'Введите коэффициент B:', allow_zero=True)
     c = get_coef(3, 'Введите коэффициент C:', allow_zero=True)
 
-    roots = get_roots(a,b,c)
+    roots = get_roots(a, b, c)
 
     len_roots = len(roots)
     if len_roots == 0:
